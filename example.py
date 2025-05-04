@@ -128,8 +128,9 @@ def analyze_price_history(data):
     yearly_avg.rename(columns={'Value': 'Average_Rent'}, inplace=True)
     yearly_avg['Percent_Change'] = yearly_avg['Average_Rent'].pct_change() * 100
     
-    # Use all available years (not just last 7)
-    last_n_years = yearly_avg.copy()
+    # Ensure years are sorted chronologically
+    yearly_avg_sorted = yearly_avg.sort_values('Year')
+    last_n_years = yearly_avg_sorted.copy()
     
     if len(last_n_years) < 1:
         return None
@@ -151,9 +152,42 @@ def analyze_price_history(data):
         'metrics': {
             'price_hikes': price_hikes,
             'total_increase': round(total_percent_increase, 1),
-            'avg_annual_increase': round(avg_annual_increase, 1)
+            'avg_annual_increase': round(avg_annual_increase, 1),
+            'latest_price': f"${int(last_year_rent)}"
         }
     }
+
+# Helper to compute metrics for any dataframe of yearly averages
+def compute_avg_metrics(avg_df: pd.DataFrame):
+    if avg_df is None or avg_df.empty:
+        return None
+    tmp = avg_df.copy()
+    tmp['Year_int'] = tmp['Year'].astype(int)
+    tmp = tmp.sort_values('Year_int')
+    first = tmp.iloc[0]['Average_Rent']
+    last = tmp.iloc[-1]['Average_Rent']
+    hikes = (tmp['Average_Rent'].diff() > 0).sum()
+    total_inc = ((last - first) / first * 100) if len(tmp) > 1 else 0
+    annual_inc = total_inc / (len(tmp) - 1) if len(tmp) > 1 else 0
+    return {
+        'price_hikes': int(hikes),
+        'total_increase': round(total_inc, 1),
+        'avg_annual_increase': round(annual_inc, 1),
+        'latest_price': f"${int(last)}"
+    }
+
+# KPI rendering function used throughout the app
+def render_kpi(label:str, value, color:str="gray"):
+    """Render a KPI card with colored text/background"""
+    st.markdown(
+        f"""
+        <div style='display:inline-block; padding:10px 14px; border-radius:8px; background:rgba(0,0,0,0.03); margin:3px; min-width:120px;'>
+            <div style='font-size:13px; color:#6e6e6e;'>{label}</div>
+            <div style='font-size:24px; font-weight:bold; color:{color};'>{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def make_api_request(url, headers, params, max_retries=3, delay=2):
     """Make API request with retry mechanism"""
@@ -185,6 +219,23 @@ def get_filter_hash(filters):
 # --- App Config ---
 st.set_page_config(page_title="Zillow Property Explorer", layout="wide")
 st.title("🏡 Zillow Property Explorer")
+
+# Check if we have comparison metrics to display
+# Previously these were displayed at the top, but we're removing them to save space
+# The comparison metrics will still be available in the sidebar and in property cards
+# comparison_analysis available here if needed for future use
+
+# Add a prominent banner for comparison address when none is set
+if not st.session_state.get('comparison_address'):
+    st.markdown("""
+    <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #FF8C00; display: flex; align-items: center;">
+        <span style="font-size: 24px; margin-right: 10px;">📊</span>
+        <div>
+            <span style="font-weight: bold; color: #333;">Add a comparison address in the sidebar</span><br>
+            <span style="color: #666; font-size: 0.9em;">Compare prices and trends with any other property</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- Sidebar Filters ---
 st.sidebar.header("Filter Listings")
@@ -222,6 +273,34 @@ beds_min = st.sidebar.number_input("Min Beds", 0, 10, st.session_state.filters['
 beds_max = st.sidebar.number_input("Max Beds", 0, 10, st.session_state.filters['beds_max'] or 0, 1)
 baths_min = st.sidebar.number_input("Min Baths", 0, 10, st.session_state.filters['baths_min'], 1)
 baths_max = st.sidebar.number_input("Max Baths", 0, 10, st.session_state.filters['baths_max'] or 0, 1)
+
+# Comparison address input
+comp_address_input = st.sidebar.text_input("Comparison Address (optional)")
+
+if comp_address_input:
+    st.session_state['comparison_address'] = comp_address_input
+
+# Fetch comparison analysis
+comparison_analysis = None
+if 'comparison_address' in st.session_state and st.session_state['comparison_address']:
+    comp_hist = fetch_rental_history(st.session_state['comparison_address'])
+    comparison_analysis = analyze_price_history(comp_hist) if comp_hist else None
+
+# Sidebar badge
+if st.session_state.get('comparison_address'):
+    st.sidebar.success(f"✓ Comparing to: {st.session_state['comparison_address'][:35]}…")
+
+if comparison_analysis:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔄 Comparison Metrics")
+    if 'metrics' in comparison_analysis:
+        cmp = comparison_analysis['metrics']
+        render_kpi("Latest Price", cmp['latest_price'], "#FF8C00")
+        render_kpi("Price Hikes", cmp['price_hikes'], "#FF8C00")
+        render_kpi("Total Inc.", f"{cmp['total_increase']}%", "#FF8C00")
+        render_kpi("Annual Inc.", f"{cmp['avg_annual_increase']}%", "#FF8C00")
+    else:
+        st.sidebar.warning("No metrics available for comparison property")
 
 # Add Apply and Clear buttons
 col1, col2 = st.sidebar.columns(2)
@@ -286,8 +365,8 @@ if not props:
     st.warning("No listings found for your criteria.")
     st.stop()
 
-# Limit displayed apartments to 10
-props = props[:10]
+# Limit displayed apartments to 15
+props = props[:15]
 
 # --- Map View with Folium ---
 st.subheader("🗺️ Property Map")
@@ -396,27 +475,26 @@ if (
         avg_other['Average_Rent'] = avg_other['Average_Rent'].round(0).astype(int)
         avg_other['Year'] = avg_other['Year'].astype(str)
         
-        # Store detailed stats for the average
-        current_year = datetime.now().year
-        all_years_stats = avg_other.copy()
-        all_years_stats['Year'] = all_years_stats['Year'].astype(int)
-        last_n_years = all_years_stats[all_years_stats['Year'] >= current_year - 7].copy()
-        
-        if len(last_n_years) > 1:
-            all_years_stats['Year'] = all_years_stats['Year'].astype(str)
-            price_hikes = (last_n_years['Average_Rent'].diff() > 0).sum()
-            first_year_rent = last_n_years.iloc[0]['Average_Rent']
-            last_year_rent = last_n_years.iloc[-1]['Average_Rent']
-            total_percent_increase = ((last_year_rent - first_year_rent) / first_year_rent) * 100
-            avg_annual_increase = total_percent_increase / (len(last_n_years) - 1)
-            
-            avg_metrics = {
-                'price_hikes': int(price_hikes),
-                'total_increase': round(total_percent_increase, 1),
-                'avg_annual_increase': round(avg_annual_increase, 1)
-            }
-            
-            st.session_state['avg_metrics'] = avg_metrics
+        # Compute metrics across full average dataset
+        avg_calc = avg_other.copy()
+        avg_calc['Year_int'] = avg_calc['Year'].astype(int)
+        avg_calc = avg_calc.sort_values('Year_int')
+
+        first_year_rent = avg_calc.iloc[0]['Average_Rent']
+        last_year_rent = avg_calc.iloc[-1]['Average_Rent']
+
+        price_hikes = (avg_calc['Average_Rent'].diff() > 0).sum()
+        total_percent_increase = ((last_year_rent - first_year_rent) / first_year_rent) * 100 if len(avg_calc) > 1 else 0
+        avg_annual_increase = total_percent_increase / (len(avg_calc) - 1) if len(avg_calc) > 1 else 0
+
+        avg_metrics = {
+            'price_hikes': int(price_hikes),
+            'total_increase': round(total_percent_increase, 1),
+            'avg_annual_increase': round(avg_annual_increase, 1),
+            'latest_price': f"${int(last_year_rent)}"
+        }
+
+        st.session_state['avg_metrics'] = avg_metrics
     else:
         st.warning("Could not calculate average price history. No valid data found for any properties.")
         avg_other = None
@@ -436,6 +514,14 @@ for idx, p in enumerate(props):
             st.image(p.get("imgSrc"), use_container_width=True)
         with cols[1]:
             st.markdown(f"### {p.get('address')}")
+            
+            # Ribbon if comparison enabled
+            if st.session_state.get('comparison_address'):
+                st.markdown(
+                    f"<div style='background:#FFF4E5; color:#CC5F00; padding:4px 8px; border-radius:4px; font-size:12px; display:inline-block;'>Comparing to: {st.session_state['comparison_address'][:35]}…</div>",
+                    unsafe_allow_html=True,
+                )
+            
             st.markdown(f"**Price:** {p.get('price', 'N/A')}")
             
             # Handle bed/bath display for multi-unit properties
@@ -450,9 +536,16 @@ for idx, p in enumerate(props):
                 else:
                     st.markdown(f"**Beds:** {beds} | **Baths:** {baths}")
             
+            # Add the 'View on Zillow' link above the visual
+            if p.get("detailUrl"):
+                st.markdown(
+                    f"[View on Zillow](https://www.zillow.com{p['detailUrl']})",
+                    unsafe_allow_html=True
+                )
+            
             # Add price history analysis
             if p.get("address"):
-                with st.expander("View Price History Analysis"):
+                with st.expander("View Price History Analysis", expanded=False):
                     # Add a spinner while loading
                     with st.spinner("Loading price history..."):
                         # Fetch selected property history
@@ -470,114 +563,79 @@ for idx, p in enumerate(props):
                         
                     # Show metrics and chart
                     if analysis:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Price Hikes (7 yrs)", analysis['metrics']['price_hikes'])
-                        with col2:
-                            st.metric("Total Increase", f"{analysis['metrics']['total_increase']}%")
-                        with col3:
-                            st.metric("Avg Annual Increase", f"{analysis['metrics']['avg_annual_increase']}%")
-                        
-                        if avg_other is not None and not avg_other.empty and 'avg_metrics' in st.session_state and st.session_state['avg_metrics']:
-                            st.markdown("**Average of Other Apartments (filtered):**")
-                            avg_metrics = st.session_state['avg_metrics']
-                            col4, col5, col6 = st.columns(3)
-                            with col4:
-                                st.metric("Avg Price Hikes (7 yrs)", avg_metrics['price_hikes'])
-                            with col5:
-                                st.metric("Avg Total Increase", f"{avg_metrics['total_increase']}%")
-                            with col6:
-                                st.metric("Avg Annual Increase", f"{avg_metrics['avg_annual_increase']}%")
-                            
-                        # Chart: selected vs. average - FIXED to display both
-                        if avg_other is not None and not avg_other.empty:
-                            # Align years
-                            common_years = set(analysis['yearly_data']['Year']).intersection(set(avg_other['Year']))
-                            avg_other_plot = avg_other[avg_other['Year'].isin(common_years)]
-                            selected_plot = analysis['yearly_data'][analysis['yearly_data']['Year'].isin(common_years)]
-                            
-                            # Only plot if we have common years
-                            if len(common_years) > 0:
-                                # Plot both selected and average
-                                fig = px.line(
-                                    selected_plot, 
-                                    x='Year', 
-                                    y='Average_Rent', 
-                                    title='Rental Price History', 
-                                    labels={'Average_Rent': 'Average Rent ($)', 'Year': 'Year'}
-                                )
-                                fig.update_traces(line=dict(color='royalblue', width=3), name='Selected Apartment')
-                                fig.add_scatter(
-                                    x=avg_other_plot['Year'], 
-                                    y=avg_other_plot['Average_Rent'], 
-                                    mode='lines', 
-                                    name='Avg Other Apartments', 
-                                    line=dict(color='orange', width=3, dash='dash')
-                                )
-                                fig.update_layout(
-                                    legend=dict(
-                                        title='Legend', 
-                                        orientation='h', 
-                                        yanchor='bottom', 
-                                        y=1.02, 
-                                        xanchor='right', 
-                                        x=1
-                                    )
-                                )
-                                fig.update_xaxes(dtick=1, tickformat='d')
-                                st.plotly_chart(fig, use_container_width=False, width=500, height=300)
-                            else:
-                                # Fallback to just selected apartment if no common years
-                                fig = px.line(
-                                    analysis['yearly_data'], 
-                                    x='Year', 
-                                    y='Average_Rent', 
-                                    title='Rental Price History', 
-                                    labels={'Average_Rent': 'Average Rent ($)', 'Year': 'Year'}
-                                )
-                                fig.update_traces(line=dict(color='royalblue', width=3), name='Selected Apartment')
-                                fig.update_layout(
-                                    legend=dict(
-                                        title='Legend', 
-                                        orientation='h', 
-                                        yanchor='bottom', 
-                                        y=1.02, 
-                                        xanchor='right', 
-                                        x=1
-                                    )
-                                )
-                                fig.update_xaxes(dtick=1, tickformat='d')
-                                st.plotly_chart(fig, use_container_width=False, width=500, height=300)
+                        # Gather reference metrics
+                        avg_metrics = compute_avg_metrics(avg_other) if avg_other is not None else None
+                        comp_metrics = comparison_analysis['metrics'] if comparison_analysis else None
+
+                        # KPI grid
+                        kpi_cols = st.columns(3)
+
+                        # Selected metrics (blue)
+                        with kpi_cols[0]:
+                            render_kpi("Sel. Latest", analysis['metrics']['latest_price'], "#1E90FF")
+                            render_kpi("Sel. Price Hikes", analysis['metrics']['price_hikes'], "#1E90FF")
+                            render_kpi("Sel. Total Inc.", f"{analysis['metrics']['total_increase']}%", "#1E90FF")
+                            render_kpi("Sel. Annual Inc.", f"{analysis['metrics']['avg_annual_increase']}%", "#1E90FF")
+
+                        # Comparison metrics (orange) if available
+                        if comp_metrics:
+                            with kpi_cols[1]:
+                                render_kpi("Comp Latest", comp_metrics['latest_price'], "#FF8C00")
+                                render_kpi("Comp Price Hikes", comp_metrics['price_hikes'], "#FF8C00")
+                                render_kpi("Comp Total Inc.", f"{comp_metrics['total_increase']}%", "#FF8C00")
+                                render_kpi("Comp Annual Inc.", f"{comp_metrics['avg_annual_increase']}%", "#FF8C00")
                         else:
-                            # Fallback to just selected if no average
-                            fig = px.line(
-                                analysis['yearly_data'], 
-                                x='Year', 
-                                y='Average_Rent', 
-                                title='Rental Price History', 
-                                labels={'Average_Rent': 'Average Rent ($)', 'Year': 'Year'}
+                            kpi_cols[1].markdown("""
+                            <div style="text-align: center; padding: 10px; color: #888; background: #f5f5f5; border-radius: 5px; margin-top: 20px;">
+                                <span style="font-size: 14px;">📌 Add a comparison address in the sidebar</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        # Average metrics (grey)
+                        if avg_metrics:
+                            with kpi_cols[2]:
+                                render_kpi("Avg Latest", avg_metrics['latest_price'], "#666666")
+                                render_kpi("Avg Price Hikes", avg_metrics['price_hikes'], "#666666")
+                                render_kpi("Avg Total Inc.", f"{avg_metrics['total_increase']}%", "#666666")
+                                render_kpi("Avg Annual Inc.", f"{avg_metrics['avg_annual_increase']}%", "#666666")
+                        else:
+                            kpi_cols[2].markdown("<br>")
+
+                        # Build chart base
+                        fig = px.line(
+                            analysis['yearly_data'],
+                            x='Year',
+                            y='Average_Rent',
+                            title='Rental Price History',
+                            labels={'Average_Rent': 'Average Rent ($)', 'Year': 'Year'}
+                        )
+                        fig.update_traces(line=dict(color='royalblue', width=3), name='Selected Apartment')
+
+                        # Comparison line
+                        if comparison_analysis:
+                            fig.add_scatter(
+                                x=comparison_analysis['yearly_data']['Year'],
+                                y=comparison_analysis['yearly_data']['Average_Rent'],
+                                mode='lines',
+                                name='Comparison',
+                                line=dict(color='#FF8C00', width=3)
                             )
-                            fig.update_traces(line=dict(color='royalblue', width=3), name='Selected Apartment')
-                            fig.update_layout(
-                                legend=dict(
-                                    title='Legend', 
-                                    orientation='h', 
-                                    yanchor='bottom', 
-                                    y=1.02, 
-                                    xanchor='right', 
-                                    x=1
-                                )
+
+                        # Average line if available
+                        if avg_other is not None and not avg_other.empty:
+                            fig.add_scatter(
+                                x=avg_other['Year'],
+                                y=avg_other['Average_Rent'],
+                                mode='lines',
+                                name='Avg Other Apartments',
+                                line=dict(color='#808080', width=3, dash='dash')
                             )
-                            fig.update_xaxes(dtick=1, tickformat='d')
-                            st.plotly_chart(fig, use_container_width=False, width=500, height=300)
-                    else:
-                        st.info("Not enough historical data available for analysis")
-            
-            if p.get("detailUrl"):
-                st.markdown(
-                    f"[View on Zillow](https://www.zillow.com{p['detailUrl']})",
-                    unsafe_allow_html=True
-                )
+
+                        fig.update_layout(
+                            legend=dict(title='Legend', orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+                        )
+                        fig.update_xaxes(dtick=1, tickformat='d')
+                        st.plotly_chart(fig, use_container_width=False, width=350, height=220)
 
 # --- Footer ---
 st.markdown(
