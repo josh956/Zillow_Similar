@@ -461,7 +461,7 @@ with map_cols[1]:
         area_info = get_area_overview(location)
     
     # Use Streamlit's markdown with a simple CSS adjustment
-    st.markdown("<div style='font-size: 1.2em;'>" + area_info + "</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 1em;'>" + area_info + "</div>", unsafe_allow_html=True)
     
     st.info("ℹ️ Information provided by AI and may not be 100% accurate. Please verify important details.")
 
