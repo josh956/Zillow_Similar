@@ -230,6 +230,34 @@ def get_filter_hash(filters):
     # Create a hash of the current filter set for cache key
     return hashlib.md5(json.dumps(filters, sort_keys=True).encode()).hexdigest()
 
+@timed_lru_cache(600)
+def get_area_overview(location):
+    """Get an overview of the area using OpenAI API"""
+    try:
+        # Check if location looks like a zip code
+        location_display = location
+        if location.isdigit() and len(location) == 5:
+            location_display = f"zip code {location}"
+            
+        prompt = f"""
+        Provide a brief overview of {location_display} as a residential area in exactly 3 sentences. 
+        Then list exactly 3 bullet points about noteworthy things a renter should be aware of in this area.
+        Be concise and informative.
+        """
+        
+        completion = client.chat.completions.create(
+            model="gpt-4.1-nano",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that provides concise information about neighborhoods and areas for potential renters."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        # Extract the content from the response
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Unable to load area information: {str(e)}"
+
 # --- App Config ---
 st.set_page_config(page_title="Zillow Property Explorer", layout="wide")
 st.title("🏡 Zillow Property Explorer")
@@ -305,21 +333,6 @@ if 'comparison_address' in st.session_state and st.session_state['comparison_add
 # Sidebar badge
 if st.session_state.get('comparison_address'):
     st.sidebar.success(f"✓ Comparing to: {st.session_state['comparison_address'][:35]}…")
-
-# Add back sidebar comparison metrics
-if comparison_analysis:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔄 Comparison Metrics")
-    if 'metrics' in comparison_analysis:
-        cmp = comparison_analysis['metrics']
-        # Ensure all KPI rendering happens in the sidebar context
-        with st.sidebar:
-            render_kpi("Latest Price", cmp['latest_price'], "#FF8C00")
-            render_kpi("Price Hikes", cmp['price_hikes'], "#FF8C00")
-            render_kpi("Total Inc.", f"{cmp['total_increase']}%", "#FF8C00")
-            render_kpi("Annual Inc.", f"{cmp['avg_annual_increase']}%", "#FF8C00")
-    else:
-        st.sidebar.warning("No metrics available for comparison property")
 
 # Add Apply and Clear buttons
 col1, col2 = st.sidebar.columns(2)
@@ -411,30 +424,46 @@ map_data = pd.DataFrame([
     if p.get("latitude") and p.get("longitude")
 ])
 
-# Create Folium map centered on the mean location
-m = folium.Map(
-    location=[map_data["lat"].mean(), map_data["lon"].mean()],
-    zoom_start=15,
-    control_scale=True
-)
+# Create two columns for map and area overview
+map_cols = st.columns([1, 1])
 
-# Add a marker for each property
-for _, row in map_data.iterrows():
-    popup_html = f"""
-      <b>{row['address']}</b><br>
-      Price: {row['price']}<br>
-      <a href="https://www.zillow.com{row['detailUrl']}" target="_blank">
-        View on Zillow
-      </a>
-    """
-    folium.Marker(
-        [row["lat"], row["lon"]],
-        popup=folium.Popup(popup_html, max_width=300),
-        tooltip=row["address"]
-    ).add_to(m)
+with map_cols[0]:
+    # Create Folium map centered on the mean location
+    m = folium.Map(
+        location=[map_data["lat"].mean(), map_data["lon"].mean()],
+        zoom_start=15,
+        control_scale=True
+    )
 
-# Render the map in Streamlit
-folium_static(m, width=700, height=420)  # Reduced by 30%
+    # Add a marker for each property
+    for _, row in map_data.iterrows():
+        popup_html = f"""
+          <b>{row['address']}</b><br>
+          Price: {row['price']}<br>
+          <a href="https://www.zillow.com{row['detailUrl']}" target="_blank">
+            View on Zillow
+          </a>
+        """
+        folium.Marker(
+            [row["lat"], row["lon"]],
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=row["address"]
+        ).add_to(m)
+
+    # Render the map in Streamlit
+    folium_static(m, width=700, height=420)  # Reduced by 30%
+
+with map_cols[1]:
+    st.subheader(f"📍 Area Overview")
+    location = st.session_state.filters['location']
+    
+    with st.spinner(f"Loading information about {location}..."):
+        area_info = get_area_overview(location)
+    
+    # Use Streamlit's markdown with a simple CSS adjustment
+    st.markdown("<div style='font-size: 1.2em;'>" + area_info + "</div>", unsafe_allow_html=True)
+    
+    st.info("ℹ️ Information provided by AI and may not be 100% accurate. Please verify important details.")
 
 # --- Card View ---
 st.subheader("🏘️ Listings")
