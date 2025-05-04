@@ -565,12 +565,15 @@ for idx, p in enumerate(props):
                 st.markdown("**Property Type:** Multi-Unit Building")
                 st.markdown("ℹ️ This property contains multiple units. Click 'View on Zillow' to see all available units and their configurations.")
             else:
-                beds = p.get('beds', 'N/A')
-                baths = p.get('baths', 'N/A')
-                if beds == 'N/A' and baths == 'N/A':
-                    st.markdown("ℹ️ Multiple units—see Zillow for details")
-                else:
+                beds = p.get('beds', None)
+                baths = p.get('baths', None)
+                if beds is not None and baths is not None:
                     st.markdown(f"**Beds:** {beds} | **Baths:** {baths}")
+                elif beds is not None:
+                    st.markdown(f"**Beds:** {beds}")
+                elif baths is not None:
+                    st.markdown(f"**Baths:** {baths}")
+                # If both are None/missing, don't display anything about beds/baths
             
             # Add the 'View on Zillow' link above the visual
             if p.get("detailUrl"):
