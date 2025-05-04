@@ -1,4 +1,6 @@
-# Python
+# Cache files
+zillow_cache.sqlite
+*_cache.sqlite
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,23 +22,22 @@ var/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# Environment variables
+.env
+.venv
+env/
 venv/
 ENV/
+
+# Streamlit
+.streamlit/
+
+# OS specific
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
-
-# Environment variables
-.env
-.env.local
-
-# Streamlit
-.streamlit/
-
-# OS
-.DS_Store
-Thumbs.db 
+*.swo 
