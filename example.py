@@ -23,7 +23,7 @@ OPENAI_API_KEY = os.getenv("General") if os.getenv("General") else st.secrets["G
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Install cache for all requests (cache expires after 10 minutes)
-requests_cache.install_cache('zillow_cache', expire_after=600)
+requests_cache.install_cache('zillow_cache', backend='memory', expire_after=600)
 
 # Timed LRU cache decorator for function-level caching (e.g., 10 min)
 def timed_lru_cache(seconds: int, maxsize: int = 128):
