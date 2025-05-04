@@ -234,19 +234,7 @@ def get_filter_hash(filters):
 st.set_page_config(page_title="Zillow Property Explorer", layout="wide")
 st.title("🏡 Zillow Property Explorer")
 
-# Add a prominent banner for comparison address when none is set
-if not st.session_state.get('comparison_address'):
-    st.markdown("""
-    <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #FF8C00; display: flex; align-items: center;">
-        <span style="font-size: 24px; margin-right: 10px;">📊</span>
-        <div>
-            <span style="font-weight: bold; color: #333;">Add a comparison address in the sidebar</span><br>
-            <span style="color: #666; font-size: 0.9em;">Compare prices and trends with any other property</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Add a prominent comparison address input at the top of the page
+# Add the comparison address input at the top of the page
 top_cols = st.columns([3, 1])
 with top_cols[0]:
     top_comp_address = st.text_input(
@@ -263,6 +251,13 @@ with top_cols[1]:
         if st.button("🔄 Change Address", key="change_top"):
             st.session_state['comparison_address'] = ""
             st.rerun()
+
+# Force clear any KPI metrics that might be showing
+# This creates an empty container where KPIs might have been displayed
+st.empty()
+st.empty()
+st.empty()
+st.empty()
 
 # --- Sidebar Filters ---
 st.sidebar.header("Filter Listings")
@@ -301,15 +296,6 @@ beds_max = st.sidebar.number_input("Max Beds", 0, 10, st.session_state.filters['
 baths_min = st.sidebar.number_input("Min Baths", 0, 10, st.session_state.filters['baths_min'], 1)
 baths_max = st.sidebar.number_input("Max Baths", 0, 10, st.session_state.filters['baths_max'] or 0, 1)
 
-# Comparison address input in sidebar (synced with top input)
-comp_address_input = st.sidebar.text_input(
-    "Comparison Address (optional)",
-    value=st.session_state.get('comparison_address', '')
-)
-
-if comp_address_input:
-    st.session_state['comparison_address'] = comp_address_input
-
 # Fetch comparison analysis
 comparison_analysis = None
 if 'comparison_address' in st.session_state and st.session_state['comparison_address']:
@@ -320,15 +306,18 @@ if 'comparison_address' in st.session_state and st.session_state['comparison_add
 if st.session_state.get('comparison_address'):
     st.sidebar.success(f"✓ Comparing to: {st.session_state['comparison_address'][:35]}…")
 
+# Add back sidebar comparison metrics
 if comparison_analysis:
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔄 Comparison Metrics")
     if 'metrics' in comparison_analysis:
         cmp = comparison_analysis['metrics']
-        render_kpi("Latest Price", cmp['latest_price'], "#FF8C00")
-        render_kpi("Price Hikes", cmp['price_hikes'], "#FF8C00")
-        render_kpi("Total Inc.", f"{cmp['total_increase']}%", "#FF8C00")
-        render_kpi("Annual Inc.", f"{cmp['avg_annual_increase']}%", "#FF8C00")
+        # Ensure all KPI rendering happens in the sidebar context
+        with st.sidebar:
+            render_kpi("Latest Price", cmp['latest_price'], "#FF8C00")
+            render_kpi("Price Hikes", cmp['price_hikes'], "#FF8C00")
+            render_kpi("Total Inc.", f"{cmp['total_increase']}%", "#FF8C00")
+            render_kpi("Annual Inc.", f"{cmp['avg_annual_increase']}%", "#FF8C00")
     else:
         st.sidebar.warning("No metrics available for comparison property")
 
@@ -445,7 +434,7 @@ for _, row in map_data.iterrows():
     ).add_to(m)
 
 # Render the map in Streamlit
-folium_static(m, width=1000, height=600)
+folium_static(m, width=700, height=420)  # Reduced by 30%
 
 # --- Card View ---
 st.subheader("🏘️ Listings")
