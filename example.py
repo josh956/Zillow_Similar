@@ -17,8 +17,8 @@ import folium
 from streamlit_folium import folium_static
 
 # --- API Key Handling ---
-RAPIDAPI_KEY = os.getenv("RapidAPI") if os.getenv("RapidAPI") else st.secrets["rapidapi"]["key"]
-OPENAI_API_KEY = os.getenv("General") if os.getenv("General") else st.secrets["General"]["key"]
+RAPIDAPI_KEY = os.getenv("RapidAPI") if os.getenv("RapidAPI") else st.secrets["rapidapi"]
+OPENAI_API_KEY = os.getenv("General") if os.getenv("General") else st.secrets["General"]
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
