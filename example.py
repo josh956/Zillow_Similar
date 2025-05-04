@@ -71,12 +71,12 @@ def fetch_with_backoff(url, headers, params, max_retries=5):
             else:
                 wait_time = delay
                 delay *= 2
-            st.warning(f"Rate limit hit. Retrying in {wait_time} seconds...")
+            st.warning(f"Loading in progress... {wait_time} seconds...")
             time.sleep(wait_time)
         else:
             st.error(f"API request failed with status {response.status_code}: {response.text}")
             return None
-    st.error("Max retries exceeded due to rate limiting.")
+    st.error("Loading in progress...")
     return None
 
 def fetch_rental_history(address):
@@ -212,11 +212,11 @@ def make_api_request(url, headers, params, max_retries=3, delay=2):
                 return response.json()
             elif response.status_code == 429:
                 if attempt < max_retries - 1:
-                    st.info(f"Rate limit reached. Waiting {delay} seconds before retry...")
+                    st.info(f"Loading in progress... {delay}")
                     time.sleep(delay)
                     continue
                 else:
-                    st.error("API rate limit reached. Please try again in a few minutes.")
+                    st.error("Loading in progress...")
                     return None
             else:
                 st.error(f"API request failed with status {response.status_code}: {response.text}")
@@ -260,7 +260,7 @@ def get_area_overview(location):
 
 # --- App Config ---
 st.set_page_config(page_title="Zillow Property Explorer", layout="wide")
-st.title("🏡 Zillow Property Explorer")
+st.title("🏡 Property Explorer")
 
 # Add the comparison address input at the top of the page
 top_cols = st.columns([3, 1])
@@ -800,7 +800,7 @@ st.markdown(
     """
     <hr>
     <p style="text-align: center;">
-    <b>Zillow Property Explorer</b> &copy; 2025<br>
+    <b> Property Explorer</b> &copy; 2025<br>
     Developed by <a href="https://www.linkedin.com/in/josh-poresky956/" target="_blank">
     Josh Poresky</a><br><br>
     </p>
