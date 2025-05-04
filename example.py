@@ -395,6 +395,15 @@ if not props:
     st.warning("No listings found for your criteria.")
     st.stop()
 
+# Filter out properties with undisclosed locations or missing geographic data
+props = [p for p in props if p.get("address") and 
+         "undisclosed" not in p.get("address", "").lower() and
+         p.get("latitude") and p.get("longitude")]
+
+if not props:
+    st.warning("Found only properties with undisclosed locations. Try different search criteria.")
+    st.stop()
+
 # Limit displayed apartments to 15
 props = props[:15]
 
@@ -450,7 +459,7 @@ if (
     st.session_state.get('last_filter_hash') != current_filter_hash
 ):
     # Get all properties with addresses (DETERMINISTIC - always the same for the filter)
-    all_apts_with_address = [p for p in props if p.get("address")]
+    all_apts_with_address = props  # Already filtered above
     
     # Use up to 7 properties for the average calculation
     apts_for_avg = all_apts_with_address[:7]
